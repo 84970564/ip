@@ -7,7 +7,7 @@
   let used = info.download + info.upload;
   let total = info.total;
   let expire = args.expire || info.expire;
-  let content = [`已用：${bytesToSize(used)} \t|  总计：${bytesToSize(total)}`];
+  let content = [`已用：${bytesToSizeNumber(used)} \t|  总计：${bytesToSizeNumber(total)}`];
 
   if (resetDayLeft || expire) {
     if (resetDayLeft && expire && expire !== "false") {
