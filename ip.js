@@ -1,46 +1,42 @@
-/*
- * 由@mieqq编写
- * 原脚本地址：https://raw.githubusercontent.com/mieqq/mieqq/master/sub_info_panel.js
- * 由@Rabbit-Spec Key 修改
- * 更新日期：2023.02.20
- * 版本：1.6
-*/
+(async () => {
+  let args = getArgs();
+  let info = await getDataInfo(args.url);
+  if (!info) $done();
+  let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
 
-(async () => {
-  let args = getArgs();
-  let info = await getDataInfo(args.url);
-  if (!info) $done();
-  let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
+  let used = info.download + info.upload;
+  let total = info.total;
+  let expire = args.expire || info.expire;
+  let content = [`已用：${bytesToSize(used)} \t|  总计：${bytesToSize(total)}`];
 
- let used = (info.download + info.upload) / (1024 * 1024 * 1024); // 将字节转换为 G
-let total = info.total / (1024 * 1024 * 1024); 
-let expire = args.expire || info.expire;
-let content = [`已用：${used.toFixed(2)} G \t|  剩余：${(total - used).toFixed(2)} G`];
-  if (resetDayLeft || expire) {
-    if (resetDayLeft && expire && expire !== "false") {
-      if (/^[\d.]+$/.test(expire)) expire *= 1000;
-      content.push(`重置：${resetDayLeft}天 \t|  ${formatTime(expire)}`);
-    } else if (resetDayLeft && !expire) {
-      content.push(`重置：${resetDayLeft}天`);
-    } else if (!resetDayLeft && expire) {
-      if (/^[\d.]+$/.test(expire)) expire *= 1000;
-      content.push(`到期：${formatTime(expire)}`);
-    }
-  }
+  if (resetDayLeft || expire) {
+    if (resetDayLeft && expire && expire !== "false") {
+      if (/^[\d.]+$/.test(expire)) expire *= 1000;
+      content.push(`重置：${resetDayLeft}天 \t|  ${formatTime(expire)}`);
+    } else if (resetDayLeft && !expire) {
+      content.push(`重置：${resetDayLeft}天`);
+    } else if (!resetDayLeft && expire) {
+      if (/^[\d.]+$/.test(expire)) expire *= 1000;
+      content.push(`到期：${formatTime(expire)}`);
+    }
+  }
 
-  let now = new Date();
-  let hour = now.getHours();
-  let minutes = now.getMinutes();
-  hour = hour > 9 ? hour : "0" + hour;
-  minutes = minutes > 9 ? minutes : "0" + minutes;
+  let now = new Date();
+  let hour = now.getHours();
+  let minutes = now.getMinutes();
+  hour = hour > 9 ? hour : "0" + hour;
+  minutes = minutes > 9 ? minutes : "0" + minutes;
 
-  $done({
-    title: `${args.title} | ${bytesToSize(total)} | ${hour}:${minutes}`,
-    content: content.join("\n"),
-    icon: args.icon || "airplane.circle",
-    "icon-color": args.color || "#007aff",
-  });
+  $done({
+    title: `${args.title} | ${bytesToSize(total)} | ${hour}:${minutes}`,
+    content: content.join("\n"),
+    icon: args.icon || "airplane.circle",
+    "icon-color": args.color || "#007aff",
+  });
 })();
+
+// 其他函数保持不变
+
 
 function getArgs() {
   return Object.fromEntries(
