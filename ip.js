@@ -15,7 +15,7 @@
   let used = (info.download + info.upload) / (1024 * 1024 * 1024); // 将字节转换为 G
 let total = info.total / (1024 * 1024 * 1024); 
 let expire = args.expire || info.expire;
-let content = [`已用：${used.toFixed(2)} G \t|  剩余：${(total - used) * 1024 * 1024} Kb`];
+let content = [`已用：${used.toFixed(2)} G \t|  剩余：${(total - used) * 1024 * 1024} G`];
   if (resetDayLeft || expire) {
     if (resetDayLeft && expire && expire !== "false") {
       if (/^[\d.]+$/.test(expire)) expire *= 1000;
