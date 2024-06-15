@@ -7,7 +7,7 @@
   let used = info.download + info.upload;
   let total = info.total;
   let expire = args.expire || info.expire;
-  let content = [`已用：${bytesToSizeNumber(used)} \t|  总计：${bytesToSizeNumber(total)}`];
+  let content = [`已用：${bytesToSizeGB(used)} \t|  总计：${bytesToSizeGB(total)}`];
 
   if (resetDayLeft || expire) {
     if (resetDayLeft && expire && expire !== "false") {
@@ -28,7 +28,7 @@
   minutes = minutes > 9 ? minutes : "0" + minutes;
 
   $done({
-    title: `${args.title} | ${bytesToSize(total)} | ${hour}:${minutes}`,
+    title: `${args.title} | ${bytesToSizeGB(total)} | ${hour}:${minutes}`,
     content: content.join("\n"),
     icon: args.icon || "airplane.circle",
     "icon-color": args.color || "#007aff",
@@ -36,6 +36,13 @@
 })();
 
 // 其他函数保持不变
+
+// 新增一个函数，用于将字节转换为GB并保留两位小数
+function bytesToSizeGB(bytes) {
+  const gb = bytes / (1024 ** 3);
+  return gb.toFixed(2) + " GB";
+}
+
 
 
 function getArgs() {
