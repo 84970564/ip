@@ -12,11 +12,10 @@
   if (!info) $done();
   let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
 
-  let used = info.download + info.upload;
-  let total = info.total;
-  let expire = args.expire || info.expire;
- let content = [`已用：${used} \t|  剩余：${toMultiply(total, used)}`];
-
+  let used = (info.download + info.upload) / (1024 * 1024); // 将字节转换为兆字节
+let total = info.total / (1024 * 1024); 
+let expire = args.expire || info.expire;
+let content = [`已用：${used.toFixed(2)} MB \t|  剩余：${toMultiply(total, used)}`];
   if (resetDayLeft || expire) {
     if (resetDayLeft && expire && expire !== "false") {
       if (/^[\d.]+$/.test(expire)) expire *= 1000;
