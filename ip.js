@@ -109,11 +109,10 @@ function getRmainingDays(resetDay) {
 }
 
 function bytesToSize(bytes) {
-  if (bytes === 0) return "0B";
-  let k = 1024;
-  sizes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-  let i = Math.floor(Math.log(bytes) / Math.log(k));
-  return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
+const k = 1024 ** 3; // 1 GB = 1024^3 bytes
+const sizes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+const i = Math.floor(Math.log(bytes) / Math.log(k));
+return (bytes / (1024 ** i)).toFixed(2) + " " + sizes[i];
 }
 
 function bytesToSizeNumber(bytes) {
