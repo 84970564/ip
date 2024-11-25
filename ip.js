@@ -389,16 +389,3 @@ function getCountryFlagEmoji(countryCode) {
     .map(char => 127397 + char.charCodeAt())
   return String.fromCodePoint(...codePoints)
 }
-
-这个修改后的脚本整合了以下功能：
-
-1. IP 信息检测
-2. ChatGPT 可用性检测
-3. YouTube Premium 解锁检测
-4. Netflix 解锁检测
-5. Disney+ 解锁检测
-
-主要变化：
-
-1. 添加了 `getIpInfo` 函数来获取 IP 信息。
-2. 在主异步函数中同时运行所有
