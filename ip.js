@@ -1,320 +1,2108 @@
-为了将这两个脚本合并，我们将提供一个完整的合并脚本，其中包含流媒体解锁检测和 ChatGPT 可用性检测的功能。新的脚本需要将两个功能结合在一个结果面板中，并通过参数自定义显示图标和颜色。
-
-以下是合并后的示例脚本：
-
-/*
- * 合并流媒体解锁检测与 ChatGPT 可用性检测脚本
- */
-
-const STREAM_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36',
-    'Accept-Language': 'en',
-};
-
-// ChatGPT URL 和支持的国家代码
-const GPT_URL = "http://chat.openai.com/cdn-cgi/trace";
-const SUPPORTED_COUNTRIES = ["T1", "XX", "AL", "DZ", "AD", "AO", "AG", "AR", "AM", "AU", "AT", "AZ", "BS", "BD", "BB", "BE", "BZ", "BJ", "BT", "BA", "BW", "BR", "BG", "BF", "CV", "CA", "CL", "CO", "KM", "CR", "HR", "CY", "DK", "DJ", "DM", "DO", "EC", "SV", "EE", "FJ", "FI", "FR", "GA", "GM", "GE", "DE", "GH", "GR", "GD", "GT", "GN", "GW", "GY", "HT", "HN", "HU", "IS", "IN", "ID", "IQ", "IE", "IL", "IT", "JM", "JP", "JO", "KZ", "KE", "KI", "KW", "KG", "LV", "LB", "LS", "LR", "LI", "LT", "LU", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MR", "MU", "MX", "MC", "MN", "ME", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NZ", "NI", "NE", "NG", "MK", "NO", "OM", "PK", "PW", "PA", "PG", "PE", "PH", "PL", "PT", "QA", "RO", "RW", "KN", "LC", "VC", "WS", "SM", "ST", "SN", "RS", "SC", "SL", "SG", "SK", "SI", "SB", "ZA", "ES", "LK", "SR", "SE", "CH", "TH", "TG", "TO", "TT", "TN", "TR", "TV", "UG", "AE", "US", "UY", "VU", "ZM", "BO", "BN", "CG", "CZ", "VA", "FM", "MD", "PS", "KR", "TW", "TZ", "TL", "GB"];
-
-// 处理 argument 参数
-let titlediy, icon, iconerr, iconColor, iconerrColor;
-if (typeof $argument !== 'undefined') {
-    const args = $argument.split('&');
-    for (let i = 0; i < args.length; i++) {
-        const [key, value] = args[i].split('=');
-        if (key === 'title') {
-            titlediy = value;
-        } else if (key === 'icon') {
-            icon = value;
-        } else if (key === 'iconerr') {
-            iconerr = value;
-        } else if (key === 'icon-color') {
-            iconColor = value;
-        } else if (key === 'iconerr-color') {
-            iconerrColor = value;
-        }
-    }
-}
-
-// 主检测函数
-(async () => {
-    let panelResult = {
-        title: titlediy ? titlediy : '服务检测',
-        content: '检测中，请稍候...',
-        icon: icon ? icon : 'questionmark.circle',
-        'icon-color': iconColor ? iconColor : '#336FA9',
-    };
-
-    try {
-        // 检测流媒体
-        let streamResult = await checkStreamUnlock();
-        // 检测GPT
-        let gptResult = await checkGptStatus();
-
-        // 合并检测结果
-        panelResult.content = streamResult + '\n' + gptResult;
-    } catch (error) {
-        panelResult.content = '检测出现错误：' + error;
-    }
-
-    $done(panelResult);
-})();
-
-// 检测流媒体解锁功能
-async function checkStreamUnlock() {
-    let results = [];
-    let disneyResult = await testDisneyPlus();
-    results.push(getDisneyText(disneyResult.status, disneyResult.region));
-    results.push(await check_youtube_premium());
-    results.push(await check_netflix());
-    return results.join('\n');
-}
-
-// 获取 Disney 状态文字描述
-function getDisneyText(status, region) {
-    switch (status) {
-        case STATUS_COMING:
-            return `Disney+: 即将登陆~ ${region.toUpperCase()}`;
-        case STATUS_AVAILABLE:
-            return `Disney+: 已解锁 ➟ ${region.toUpperCase()}`;
-        case STATUS_NOT_AVAILABLE:
-            return `Disney+: 未支持 🚫`;
-        case STATUS_TIMEOUT:
-            return `Disney+: 检测超时 🚦`;
-        default:
-            return `Disney+: 检测错误`;
-    }
-}
-
-// YouTube Premium 解锁检测
-async function check_youtube_premium() {
-    let youtubeCheckResult = 'YouTube: ';
-    try {
-        let region = await new Promise((resolve, reject) => {
-            let option = { url: 'https://www.youtube.com', headers: STREAM_HEADERS };
-            $httpClient.get(option, function (error, response, data) {
-                if (error || response.status !== 200) {
-                    reject('Error');
-                    return;
-                }
-                
-                if (data.includes('Premium is not available in your country')) {
-                    resolve('Not Available');
-                    return;
-                }
-                
-                let re = /"countryCode":"(.*?)"/gm;
-                let match = re.exec(data);
-                resolve(match ? match[1] : 'US');
-            });
-        });
-
-        youtubeCheckResult += (region === 'Not Available') ? '不支持解锁' : `已解锁 ➟ ${region.toUpperCase()}`;
-    } catch (error) {
-        youtubeCheckResult += '检测失败，请刷新面板';
-    }
-    
-    return youtubeCheckResult;
-}
-
-// Netflix 解锁检测
-async function check_netflix() {
-    let netflixCheckResult = 'Netflix: ';
-    try {
-        let region = await checkNetflixRegion(81280792);  // 使用某个Netflix影片ID检测
-
-        if (region === 'Not Found') {
-            region = await checkNetflixRegion(80018499);
-            if (region === 'Not Found') throw 'Not Available';
-            netflixCheckResult += `仅解锁自制剧 ➟ ${region.toUpperCase()}`;
-        } else {
-            netflixCheckResult += `已完整解锁 ➟ ${region.toUpperCase()}`;
-        }
-    } catch (error) {
-        netflixCheckResult += (error === 'Not Available') ? '该节点不支持解锁' : '检测失败，请刷新面板';
-    }
-
-    return netflixCheckResult;
-}
-
-async function checkNetflixRegion(filmId) {
-    return new Promise((resolve, reject) => {
-        let option = { url: `https://www.netflix.com/title/${filmId}`, headers: STREAM_HEADERS };
-        $httpClient.get(option, function (error, response, data) {
-            if (error || response.status === 403) {
-                reject('Not Available');
-            } else if (response.status === 404) {
-                resolve('Not Found');
-            } else if (response.status === 200) {
-                let url = response.headers['x-originating-url'];
-                let region = url.split('/')[3].split('-')[0];
-                resolve(region === 'title' ? 'US' : region);
-            } else {
-                reject('Error');
-            }
-        });
-    });
-}
-
-// GPT 可用性检测
-async function checkGptStatus() {
-    return new Promise((resolve, reject) => {
-        $httpClient.get(GPT_URL, function (error, response, data) {
-            if (error) {
-                return reject('GPT检测失败');
-            }
-
-            let lines = data.split("\n");
-            let cf = lines.reduce((acc, line) => {
-                let [key, value] = line.split("=");
-                acc[key] = value;
-                return acc;
-            }, {});
-
-            let loc = cf.loc || '未知';
-            let isSupported = SUPPORTED_COUNTRIES.includes(loc) ? "支持✅" : "不支持❌";
-            let countryEmoji = getCountryFlagEmoji(loc);
-            let resultText = `GPT: ${isSupported} (${countryEmoji} ${loc})`;
-
-            resolve(resultText);
-        });
-    });
-}
-
-// 获取国家国旗 Emoji 的函数
-function getCountryFlagEmoji(countryCode) {
-    if (countryCode.toUpperCase() == 'TW') {
-        countryCode = 'CN';
-    }
-    const codePoints = countryCode.toUpperCase().split('').map(char => 127397 + char.charCodeAt());
-    return String.fromCodePoint(...codePoints);
-}
-
-// Disney+检测代码逻辑
-async function testDisneyPlus() {
-    try {
-        let { region, cnbl } = await Promise.race([testHomePage(), timeout(7000)]);
-        let { countryCode, inSupportedLocation } = await Promise.race([getLocationInfo(), timeout(7000)]);
-        
-        region = countryCode ?? region;
-
-        if (inSupportedLocation === false || inSupportedLocation === 'false') {
-            return { region, status: STATUS_COMING };
-        } else {
-            return {: STATUS_AVAILABLE };
-        }
-    } catch (error) {
-        console.log("Disney+检测错误: " + error);
-        return { status: handleDisneyError(error) };
-    }
-}
-
-function handleDisneyError(error) {
-    if (error === 'Not Available') return STATUS_NOT_AVAILABLE;
-    if (error === 'Timeout') return STATUS_TIMEOUT;
-    return STATUS_ERROR;
-}
-
-function getLocationInfo() {
-    return new Promise((resolve, reject) => {
-        let opts = {
-            url: 'https://disney.api.edge.bamgrid.com/graph/v1/device/graphql',
-            headers: {
-                'Accept-Language': 'en',
-                Authorization: 'ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84',
-                'Content-Type': 'application/json',
-                'User-Agent': UA,
+{
+  "id": "iRingo.app.sub",
+  "name": " iRingo (iOS 17)",
+  "author": "@VirgilClyne",
+  "description": "解锁完整的 Apple功能和集成服务",
+  "icon": "https://avatars.githubusercontent.com/u/182791244?s=200&v=4",
+  "repo": "https://github.com/NSRingo",
+  "apps": [
+    {
+      "id": "iRingo.Weather",
+      "name": "🌤 天气",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/Weather/weather\">🌤 天气</a>的使用说明进行配置",
+        "填写完成后别忘点击此页面底端右下角的\"保存\"。",
+        "查询速度:\"私有API+城市\" > \"私有API+观测站\" > \"公共API+观测站\"",
+        "定位精度:\"观测站\" > \"城市\""
+      ],
+      "keys": [
+        "@iRingo.Weather.Settings",
+        "@iRingo.Weather.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.Weather.Settings.Switch",
+          "name": "总功能开关",
+          "val": true,
+          "type": "boolean",
+          "desc": "是否启用此APP修改"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.NextHour.Switch",
+          "name": "[未来一小时降水强度] 修改开关",
+          "val": true,
+          "type": "boolean",
+          "desc": "修改未来一小时降水强度"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.NextHour.Source",
+          "name": "[未来一小时降水强度] 数据源",
+          "val": "www.weatherol.cn",
+          "type": "radios",
+          "items": [
+            {
+              "key": "www.weatherol.cn",
+              "label": "气象在线"
             },
-            body: JSON.stringify({
-                query: 'mutation registerDevice($input: RegisterDeviceInput!) { registerDevice(registerDevice: $input) { grant { grantType assertion } } }',
-                variables: {
-                    input: {
-                        applicationRuntime: 'chrome',
-                        attributes: {
-                            browserName: 'chrome',
-                            browserVersion: '94.0.4606',
-                            manufacturer: 'apple',
-                            model: null,
-                            operatingSystem: 'macintosh',
-                            operatingSystemVersion: '10.15.7',
-                            osDeviceIds: [],
-                        },
-                        deviceFamily: 'browser',
-                        deviceLanguage: 'en',
-                        deviceProfile: 'macosx',
-                    },
-                },
-            }),
-        };
-
-        $httpClient.post(opts, function (error, response, data) {
-            if (error) {
-                reject('Error');
-                return;
+            {
+              "key": "api.caiyunapp.com",
+              "label": "彩云天气（专业套餐及以上）"
             }
-
-            if (response.status !== 200) {
-                reject('Not Available');
-                return;
-            }
-
-            data = JSON.parse(data);
-            if (data?.errors) {
-                reject('Not Available');
-                return;
-            }
-
-            let { session: { inSupportedLocation, location: { countryCode } } } = data?.extensions?.sdk;
-            resolve({ inSupportedLocation, countryCode });
-        });
-    });
-}
-
-function testHomePage() {
-    return new Promise((resolve, reject) => {
-        let opts = {
-            url: 'https://www.disneyplus.com/',
-            headers: {
-                'Accept-Language': 'en',
-                'User-Agent': UA,
+          ],
+          "desc": "气象在线与彩云天气的数据源相同，但不支持简体中文以外的语言。"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Switch",
+          "name": "[空气质量] 修改开关",
+          "val": true,
+          "type": "boolean",
+          "desc": "修改空气质量"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Targets",
+          "name": "[空气质量] 需要修改的标准",
+          "val": [
+            "HJ6332012"
+          ],
+          "type": "checkboxes",
+          "desc": "选中的空气质量标准会被替换。请注意各国监测的污染物种类可能有所不同，转换算法或API未必适合当地。",
+          "items": [
+            {
+              "key": "CA.AQHI",
+              "label": "加拿大（CA AQHI）"
             },
-        };
-
-        $httpClient.get(opts, function (error, response, data) {
-            if (error) {
-                reject('Error');
-                return;
+            {
+              "key": "FR.ATMO",
+              "label": "法国（FR ATMO）"
+            },
+            {
+              "key": "UBA",
+              "label": "德国（UBA）"
+            },
+            {
+              "key": "NAQI",
+              "label": "印度（NAQI）"
+            },
+            {
+              "key": "EU.EAQI",
+              "label": "意大利（EU EAQI）"
+            },
+            {
+              "key": "ICARS",
+              "label": "墨西哥（ICARS）"
+            },
+            {
+              "key": "NL.LKI",
+              "label": "荷兰（NL LKI）"
+            },
+            {
+              "key": "SG.NEA",
+              "label": "新加坡（SG NEA）"
+            },
+            {
+              "key": "KR.CAI",
+              "label": "韩国（KR CAI）"
+            },
+            {
+              "key": "ES.MITECO",
+              "label": "西班牙（ES MITECO）"
+            },
+            {
+              "key": "DAQI",
+              "label": "英国（DAQI）"
+            },
+            {
+              "key": "EPA_NowCast",
+              "label": "美国（及日本）（EPA NowCast）"
+            },
+            {
+              "key": "HJ6332012",
+              "label": "中国（HJ 633—2012）"
             }
-            if (response.status !== 200 || data.includes('Sorry, Disney+ is not available in your region.')) {
-                reject('Not Available');
-                return;
+          ]
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Local.Switch",
+          "name": "[空气质量] 本地替换",
+          "val": true,
+          "type": "boolean",
+          "desc": "使用本地替换算法，将Apple数据转换为特定标准"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Local.Standard",
+          "name": "[空气质量] 本地替换算法",
+          "val": "WAQI_InstantCast",
+          "type": "selects",
+          "desc": "本地替换时使用的算法",
+          "items": [
+            {
+              "key": "WAQI_InstantCast",
+              "label": "WAQI InstantCast"
             }
-
-            let match = data.match(/Region: ([A-Za-z]{2})[\s\S]*?CNBL: ([12])/);
-            if (!match) {
-                resolve({ region: '', cnbl: '' });
-                return;
+          ]
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Source",
+          "name": "[空气质量] 数据源",
+          "val": "www.weatherol.cn",
+          "type": "radios",
+          "items": [
+            {
+              "key": "Local",
+              "label": "仅使用Apple数据"
+            },
+            {
+              "key": "www.weatherol.cn",
+              "label": "气象在线"
+            },
+            {
+              "key": "api.caiyunapp.com",
+              "label": "彩云天气"
+            },
+            {
+              "key": "api.waqi.info",
+              "label": "The World Air Quality Project"
             }
-
-            let region = match[1];
-            let cnbl = match[2];
-            resolve({ region, cnbl });
-        });
-    });
+          ],
+          "desc": "空气质量数据源"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Comparison.Switch",
+          "name": "[空气质量] 对比昨日空气质量",
+          "val": true,
+          "type": "boolean",
+          "desc": "与昨日空气质量指数进行对比"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.AQI.Comparison.Source",
+          "name": "[空气质量] 对比昨日空气质量数据源",
+          "val": "Local",
+          "type": "radios",
+          "items": [
+            {
+              "key": "Local",
+              "label": "仅使用缓存数据"
+            },
+            {
+              "key": "api.caiyunapp.com",
+              "label": "彩云天气（个人套餐及以上）"
+            },
+            {
+              "key": "api.waqi.info",
+              "label": "The World Air Quality Project (非常慢)"
+            }
+          ],
+          "desc": "对比昨日空气质量数据源"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.Map.AQI",
+          "name": "[开发中] [空气质量地图] 修改开关",
+          "val": false,
+          "type": "boolean",
+          "desc": "[开发中]修改空气质量地图"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.WeatherOL.HTTPHeaders",
+          "name": "[气象在线] HTTP请求头",
+          "val": "{ \"Content-Type\": \"application/json\" }",
+          "type": "text",
+          "placeholder": "{ \"Content-Type\": \"application/json\" }",
+          "desc": "请求气象在线API时使用的HTTP请求头"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.ColorfulClouds.HTTPHeaders",
+          "name": "[彩云天气] HTTP请求头",
+          "val": "{ \"Content-Type\": \"application/json\" }",
+          "type": "text",
+          "placeholder": "{ \"Content-Type\": \"application/json\" }",
+          "desc": "请求彩云天气API时使用的HTTP请求头"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.ColorfulClouds.Token",
+          "name": "[彩云天气] 彩云天气令牌",
+          "val": "",
+          "type": "text",
+          "placeholder": "ABcdef1g2hiJklmN",
+          "desc": "彩云天气API令牌"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.ColorfulClouds.ForceCNForAQI",
+          "name": "[彩云天气] 强制使用国标AQI（空气质量）",
+          "val": false,
+          "type": "boolean",
+          "desc": "作为空气质量数据源时，强制使用国标AQI"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.ColorfulClouds.ForceCNForComparison",
+          "name": "[彩云天气] 强制使用国标AQI（对比昨日空气质量）",
+          "val": false,
+          "type": "boolean",
+          "desc": "作为对比昨日空气质量数据源时，强制使用国标AQI"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.WAQI.HTTPHeaders",
+          "name": "[WAQI] HTTP请求头",
+          "val": "{ \"Content-Type\": \"application/json\" }",
+          "type": "text",
+          "placeholder": "{ \"Content-Type\": \"application/json\" }",
+          "desc": "请求WAQI API时使用的HTTP请求头"
+        },
+        {
+          "id": "@iRingo.Weather.Settings.APIs.WAQI.Token",
+          "name": "[WAQI] WAQI令牌",
+          "val": "",
+          "type": "text",
+          "placeholder": "123456789123456789abcdefghijklmnopqrstuv",
+          "desc": "WAQI API令牌"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/Weather",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/weather/weather-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/weather/weather-128x128.png"
+      ]
+    },
+    {
+      "id": "iRingo.Location",
+      "name": "📍 定位",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/GeoServices/location\">📍 定位</a>的使用说明进行配置",
+        "影响功能范围包括但不限于“地图”、“Apple News”、“指南针”等"
+      ],
+      "keys": [
+        "@iRingo.Location.Settings",
+        "@iRingo.Location.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.Location.Settings.PEP.GCC",
+          "name": "[地区检测] 地理国家或地区代码",
+          "val": "US",
+          "type": "selects",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（跟随地区检测结果）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰中国香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼中国台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ],
+          "desc": "要更改为的地区或国家，此选项影响Wi-Fi或有线网络下国家和地区检测的结果。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/GeoServices",
+      "icons": [
+        "https://support.apple.com/library/content/dam/edam/applecare/images/en_US/iOS/ios15-location-arrow-status-icon.png",
+        "https://support.apple.com/library/content/dam/edam/applecare/images/en_US/iOS/ios15-location-arrow-status-icon.png"
+      ]
+    },
+    {
+      "id": "iRingo.Maps",
+      "name": "🗺️ 地图",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/GeoServices/maps\">🗺️ 地图</a>的使用说明进行配置",
+        "影响功能范围包括但不限于“地图”、“Apple News”、“指南针”等"
+      ],
+      "keys": [
+        "@iRingo.Maps.Settings",
+        "@iRingo.Maps.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.Maps.Settings.GeoManifest.Dynamic.Config.CountryCode",
+          "name": "[动态配置] 资源清单的国家或地区代码",
+          "type": "selects",
+          "val": "CN",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（跟随用户当前所在地区）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰中国香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼中国台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ],
+          "desc": "此选项影响“地图”整体配置内容，包括以下的地图功能与服务。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.UrlInfoSet.Dispatcher",
+          "name": "[URL信息集] 调度器",
+          "type": "selects",
+          "val": "AutoNavi",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "AutoNavi",
+              "label": "🧭高德（🇨🇳:互动百科/大众点评/携程 | 🇺🇳:维基百科/Yelp/Booking）"
+            },
+            {
+              "key": "Apple",
+              "label": "Apple（维基百科/Yelp/Booking）"
+            }
+          ],
+          "desc": "地点数据接口，此选项影响公共指南，兴趣点(POI)与位置信息等功能。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.UrlInfoSet.Directions",
+          "name": "[URL信息集] 导航与ETA",
+          "type": "selects",
+          "val": "AutoNavi",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "AutoNavi",
+              "label": "🧭高德（🇨🇳:高德地图 | 🇺🇳:TomTom）"
+            },
+            {
+              "key": "Apple",
+              "label": "Apple（🇨🇳:🈚️ | 🇺🇳:TomTom）"
+            }
+          ],
+          "desc": "导航与ETA服务接口，此选项影响导航与ETA(到达时间)等功能。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.UrlInfoSet.RAP",
+          "name": "[URL信息集] 评分和照片",
+          "type": "selects",
+          "val": "Apple",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "AutoNavi",
+              "label": "🧭高德（🇨🇳:🈶️但未开放 | 🇺🇳:🈚️）"
+            },
+            {
+              "key": "Apple",
+              "label": "Apple（🇨🇳:🈚️ | 🇺🇳:🈶️）"
+            }
+          ],
+          "desc": "评分和照片服务接口，此选项影响评分和照片服务以及照片使用。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.UrlInfoSet.LocationShift",
+          "name": "[URL信息集] 定位漂移",
+          "type": "selects",
+          "val": "AUTO",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "AutoNavi",
+              "label": "🧭高德（🈚️坐标，使用🇨🇳GCJ-02坐标）"
+            },
+            {
+              "key": "Apple",
+              "label": "Apple（🈶️坐标，使用🇺🇳WGS-84坐标）"
+            }
+          ],
+          "desc": "定位漂移修正服务接口，控制定位漂移和🧭指南针与📍坐标的经纬度。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.TileSet.Satellite",
+          "name": "[瓦片数据集] 卫星图像",
+          "type": "selects",
+          "val": "HYBRID",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "HYBRID",
+              "label": "混合（🇨🇳:2D较新 | 🇺🇳:主要城市3D）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国四维（🇨🇳:2D较新 | 🇺🇳:🈚️）"
+            },
+            {
+              "key": "XX",
+              "label": "🇺🇳DigitalGlobe（🇨🇳:2D较旧 | 🇺🇳:2D+主要城市3D）"
+            }
+          ],
+          "desc": "此选项影响所列位图、影像与模型数据。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.TileSet.Flyover",
+          "name": "[瓦片数据集] 飞行俯瞰",
+          "type": "selects",
+          "val": "XX",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳Apple（🇨🇳:🈚️ | 🇺🇳:🈚️）"
+            },
+            {
+              "key": "XX",
+              "label": "🇺🇳Apple（🇨🇳:🈚️ | 🇺🇳:🈶️）"
+            }
+          ],
+          "desc": "此选项影响飞行俯瞰全球各地的主要地标和城市功能。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.TileSet.Munin",
+          "name": "[瓦片数据集] 四处看看",
+          "type": "selects",
+          "val": "XX",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳Apple（🇨🇳:🈚️ | 🇺🇳:🈚️）"
+            },
+            {
+              "key": "XX",
+              "label": "🇺🇳Apple（🇨🇳:🈚️ | 🇺🇳:🈶️）"
+            }
+          ],
+          "desc": "此选项影响 360 度全景视角在某些地点四处看看功能。"
+        },
+        {
+          "id": "@iRingo.Maps.Settings.LogLevel",
+          "name": "[调试] 日志等级",
+          "type": "selects",
+          "val": "WARN",
+          "items": [
+            {
+              "key": "OFF",
+              "label": "关闭"
+            },
+            {
+              "key": "ERROR",
+              "label": "❌ 错误"
+            },
+            {
+              "key": "WARN",
+              "label": "⚠️ 警告"
+            },
+            {
+              "key": "INFO",
+              "label": "ℹ️ 信息"
+            },
+            {
+              "key": "DEBUG",
+              "label": "🅱️ 调试"
+            },
+            {
+              "key": "ALL",
+              "label": "全部"
+            }
+          ],
+          "desc": "选择脚本日志的输出等级，低于所选等级的日志将全部输出。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/GeoServices",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/maps/maps-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/maps/maps-128x128.png"
+      ]
+    },
+    {
+      "id": "iRingo.Spotlight",
+      "name": "🔍 聚焦搜索",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/Siri/siri-and-search\">⭕ Siri与搜索</a>的使用说明进行配置",
+        "影响功能范围包括「Siri建议」「来自APPLE的内容」「来自APPLE的建议」等"
+      ],
+      "keys": [
+        "@iRingo.Spotlight.Settings",
+        "@iRingo.Spotlight.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.Spotlight.Settings.CountryCode",
+          "name": "国家或地区代码",
+          "type": "selects",
+          "val": "SG",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（跟随系统地区设置）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰中国香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼中国台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ],
+          "desc": "不同国家或地区提供的内容或有差别，此选项同时会影响分配给您不同地区的 Siri 服务器。"
+        },
+        {
+          "id": "@iRingo.Spotlight.Settings.Domains",
+          "name": "搜索领域",
+          "type": "checkboxes",
+          "val": [
+            "web",
+            "itunes",
+            "app_store",
+            "movies",
+            "restaurants",
+            "maps"
+          ],
+          "items": [
+            {
+              "key": "web",
+              "label": "网页"
+            },
+            {
+              "key": "itunes",
+              "label": "iTunes"
+            },
+            {
+              "key": "app_store",
+              "label": "App Store"
+            },
+            {
+              "key": "movies",
+              "label": "电影"
+            },
+            {
+              "key": "restaurants",
+              "label": "餐厅"
+            },
+            {
+              "key": "maps",
+              "label": "地图"
+            }
+          ],
+          "desc": "启用搜索的领域，领域数据由国家或地区设置决定，此选项仅开启搜索的领域，不代表设置的地区一定有相应的数据和服务。"
+        },
+        {
+          "id": "@iRingo.Spotlight.Settings.Functions",
+          "name": "功能",
+          "type": "checkboxes",
+          "val": [
+            "flightutilities",
+            "lookup",
+            "mail",
+            "messages",
+            "news",
+            "safari",
+            "siri",
+            "spotlight",
+            "visualintelligence"
+          ],
+          "items": [
+            {
+              "key": "flightutilities",
+              "label": "航班工具"
+            },
+            {
+              "key": "lookup",
+              "label": "查询"
+            },
+            {
+              "key": "mail",
+              "label": "邮件"
+            },
+            {
+              "key": "messages",
+              "label": "信息"
+            },
+            {
+              "key": "news",
+              "label": "新闻"
+            },
+            {
+              "key": "safari",
+              "label": "Safari浏览器"
+            },
+            {
+              "key": "siri",
+              "label": "Siri"
+            },
+            {
+              "key": "spotlight",
+              "label": "聚焦搜索"
+            },
+            {
+              "key": "visualintelligence",
+              "label": "视觉智能"
+            }
+          ],
+          "desc": "启用的「Siri 建议」功能，未选的功能不代表关闭，仅代表还原到该地区默认设置状态。"
+        },
+        {
+          "id": "@iRingo.Spotlight.Settings.SafariSmartHistory",
+          "name": "Safari 智能历史记录",
+          "type": "boolean",
+          "val": true,
+          "desc": "是否在 Safari 浏览器中启用基于历史记录的Siri建议功能，启用后将在Safari浏览器起始页推荐基于时间地点跨设备等的相关浏览记录。"
+        },
+        {
+          "id": "@iRingo.Spotlight.Settings.LogLevel",
+          "name": "[调试] 日志等级",
+          "type": "selects",
+          "val": "WARN",
+          "items": [
+            {
+              "key": "OFF",
+              "label": "关闭"
+            },
+            {
+              "key": "ERROR",
+              "label": "❌ 错误"
+            },
+            {
+              "key": "WARN",
+              "label": "⚠️ 警告"
+            },
+            {
+              "key": "INFO",
+              "label": "ℹ️ 信息"
+            },
+            {
+              "key": "DEBUG",
+              "label": "🅱️ 调试"
+            },
+            {
+              "key": "ALL",
+              "label": "全部"
+            }
+          ],
+          "desc": "选择脚本日志的输出等级，低于所选等级的日志将全部输出。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/Siri/siri-and-search",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/spotlight/spotlight-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/spotlight/spotlight-128x128.png"
+      ]
+    },
+    {
+      "id": "iRingo.TV",
+      "name": "📺 TV",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/apple-tv\">📺 TV</a>的使用说明进行配置",
+        "自定义TV app的配置文件及各个栏目"
+      ],
+      "keys": [
+        "@iRingo.TV.Settings",
+        "@iRingo.TV.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.TV.Settings.ThirdParty",
+          "name": "启用第三方 App 与 TV app 关联功能",
+          "type": "boolean",
+          "val": false,
+          "desc": "是否将桌面版/macOS版/app版等平台的 TV app 转换至 iPad 版，以启用第三方 App 与 TV app 关联功能(如: Disney+, Prime Video 等)。"
+        },
+        {
+          "id": "@iRingo.TV.Settings.HLSUrl",
+          "name": "[主机名] HTTP实时流(HLS)地址",
+          "type": "selects",
+          "val": "play-edge.itunes.apple.com",
+          "items": [
+            {
+              "key": "",
+              "label": "OFF(不修改)"
+            },
+            {
+              "key": "play.itunes.apple.com",
+              "label": "play.itunes.apple.com (不推荐，与播放服务域名重叠)"
+            },
+            {
+              "key": "play-edge.itunes.apple.com",
+              "label": "play-edge.itunes.apple.com (默认)"
+            }
+          ],
+          "desc": "因为FPS服务域名禁止MitM，修改此地址可以分离HLS与FPS的域名，从而恢复对DualSubs的双语字幕支持。"
+        },
+        {
+          "id": "@iRingo.TV.Settings.FPSUrl",
+          "name": "[主机名] FairPlay流(FPS)地址",
+          "type": "selects",
+          "val": "play.itunes.apple.com",
+          "items": [
+            {
+              "key": "",
+              "label": "OFF(不修改)"
+            },
+            {
+              "key": "play.itunes.apple.com",
+              "label": "play.itunes.apple.com (默认)"
+            },
+            {
+              "key": "play-edge.itunes.apple.com",
+              "label": "play-edge.itunes.apple.com (不推荐，与播放服务域名重叠)"
+            }
+          ],
+          "desc": "因为FPS服务域名禁止MitM，修改此地址可以分离HLS与FPS的域名，从而恢复对DualSubs的双语字幕支持。"
+        },
+        {
+          "id": "@iRingo.TV.Settings.Tabs",
+          "name": "启用的标签与栏目",
+          "val": [
+            "WatchNow",
+            "Originals",
+            "MLS",
+            "Sports",
+            "Kids",
+            "Store",
+            "Movies",
+            "TV",
+            "Library",
+            "Search"
+          ],
+          "type": "checkboxes",
+          "items": [
+            {
+              "key": "WatchNow",
+              "label": "主页(立即观看)"
+            },
+            {
+              "key": "Originals",
+              "label": "Apple TV+/TV+(原创内容)"
+            },
+            {
+              "key": "MLS",
+              "label": "MLS Season Pass(旧版不支持)"
+            },
+            {
+              "key": "Sports",
+              "label": "体育节目(旧版为主页的二级菜单)"
+            },
+            {
+              "key": "Kids",
+              "label": "儿童(旧版为主页的二级菜单)"
+            },
+            {
+              "key": "Store",
+              "label": "商店"
+            },
+            {
+              "key": "Movies",
+              "label": "电影(旧版为主页的二级菜单)"
+            },
+            {
+              "key": "TV",
+              "label": "电视节目(旧版为主页的二级菜单)"
+            },
+            {
+              "key": "Library",
+              "label": "资料库"
+            },
+            {
+              "key": "Search",
+              "label": "搜索"
+            }
+          ],
+          "desc": "启用的标签与栏目，未选择的标签与栏目入口将被隐藏，启用的入口由国家和地区决定，此选项仅代表功能入口上的开启，不代表对应地区一定有数据和服务."
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Configs",
+          "name": "[配置文件]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“配置文件”要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.View[0]",
+          "name": "[内容详情]首选语言",
+          "val": "SG",
+          "type": "selects",
+          "desc": "“内容详情”(电影、电视节目、人物等详情页面)要更改为的首选语言",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "自动(与当前登陆账号保持一致)"
+            },
+            {
+              "key": "CN",
+              "label": "简体中文(中国)"
+            },
+            {
+              "key": "HK",
+              "label": "繁体粤语(香港)"
+            },
+            {
+              "key": "TW",
+              "label": "繁体中文(台湾)"
+            },
+            {
+              "key": "SG",
+              "label": "简体中文(新加坡)"
+            },
+            {
+              "key": "US",
+              "label": "英语(美国)"
+            },
+            {
+              "key": "JP",
+              "label": "日语(日本)"
+            },
+            {
+              "key": "AU",
+              "label": "英语(澳大利亚)"
+            },
+            {
+              "key": "GB",
+              "label": "英语(英国)"
+            },
+            {
+              "key": "KR",
+              "label": "韩语(韩国)"
+            },
+            {
+              "key": "CA",
+              "label": "英语(加拿大)"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.View[1]",
+          "name": "[内容详情]第二语言",
+          "val": "TW",
+          "type": "selects",
+          "desc": "当首选语言不可用时，“内容详情”(电影、电视节目、人物等详情页面)要更改为的第二语言",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "自动(与当前登陆账号保持一致)"
+            },
+            {
+              "key": "CN",
+              "label": "简体中文(中国)"
+            },
+            {
+              "key": "HK",
+              "label": "繁体粤语(香港)"
+            },
+            {
+              "key": "TW",
+              "label": "繁体中文(台湾)"
+            },
+            {
+              "key": "SG",
+              "label": "简体中文(新加坡)"
+            },
+            {
+              "key": "US",
+              "label": "英语(美国)"
+            },
+            {
+              "key": "JP",
+              "label": "日语(日本)"
+            },
+            {
+              "key": "AU",
+              "label": "英语(澳大利亚)"
+            },
+            {
+              "key": "GB",
+              "label": "英语(英国)"
+            },
+            {
+              "key": "KR",
+              "label": "韩语(韩国)"
+            },
+            {
+              "key": "CA",
+              "label": "英语(加拿大)"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.WatchNow",
+          "name": "[主页(立即观看)]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“主页”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Originals",
+          "name": "[Apple TV+/TV+(原创内容)]国家或地区代码",
+          "val": "TW",
+          "type": "selects",
+          "desc": "“Apple TV+/TV+”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Channels",
+          "name": "[频道 & Apps]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“频道 & Apps”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Sports",
+          "name": "[体育节目]国家或地区代码",
+          "val": "US",
+          "type": "selects",
+          "desc": "“体育节目”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Kids",
+          "name": "[儿童]国家或地区代码",
+          "val": "US",
+          "type": "selects",
+          "desc": "“儿童”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Store",
+          "name": "[商店]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“商店”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Movies",
+          "name": "[电影]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“电影”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.TV",
+          "name": "[电视节目]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“电视节目”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Persons",
+          "name": "[人物]国家或地区代码",
+          "val": "SG",
+          "type": "selects",
+          "desc": "“人物”栏目(导演、演员等)要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Search",
+          "name": "[搜索]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "“搜索”栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.CountryCode.Others",
+          "name": "[其他]国家或地区代码",
+          "val": "AUTO",
+          "type": "selects",
+          "desc": "其他未指定的栏目要更改为的地区或国家版本",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（与当前登陆账号保持一致）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ]
+        },
+        {
+          "id": "@iRingo.TV.Settings.LogLevel",
+          "name": "[调试] 日志等级",
+          "type": "selects",
+          "val": "WARN",
+          "items": [
+            {
+              "key": "OFF",
+              "label": "关闭"
+            },
+            {
+              "key": "ERROR",
+              "label": "❌ 错误"
+            },
+            {
+              "key": "WARN",
+              "label": "⚠️ 警告"
+            },
+            {
+              "key": "INFO",
+              "label": "ℹ️ 信息"
+            },
+            {
+              "key": "DEBUG",
+              "label": "🅱️ 调试"
+            },
+            {
+              "key": "ALL",
+              "label": "全部"
+            }
+          ],
+          "desc": "选择脚本日志的输出等级，低于所选等级的日志将全部输出。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/TV",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/apple-tv/apple-tv-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/apple-tv/apple-tv-128x128.png"
+      ]
+    },
+    {
+      "id": "iRingo.News",
+      "name": "📰 News",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/apple-news\">📰 News</a>的使用说明进行配置",
+        "影响功能范围……等"
+      ],
+      "keys": [
+        "@iRingo.News.Settings",
+        "@iRingo.News.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.News.Settings.CountryCode",
+          "name": "国家或地区代码",
+          "type": "selects",
+          "val": "US",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（跟随地区检测结果）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ],
+          "desc": "不同国家或地区提供的内容或有差别。"
+        },
+        {
+          "id": "@iRingo.News.Settings.NewsPlusUser",
+          "name": "[搜索]显示News+内容",
+          "type": "boolean",
+          "val": true,
+          "desc": "是否显示News+搜索结果。"
+        },
+        {
+          "id": "@iRingo.News.Settings.LogLevel",
+          "name": "[调试] 日志等级",
+          "type": "selects",
+          "val": "WARN",
+          "items": [
+            {
+              "key": "OFF",
+              "label": "关闭"
+            },
+            {
+              "key": "ERROR",
+              "label": "❌ 错误"
+            },
+            {
+              "key": "WARN",
+              "label": "⚠️ 警告"
+            },
+            {
+              "key": "INFO",
+              "label": "ℹ️ 信息"
+            },
+            {
+              "key": "DEBUG",
+              "label": "🅱️ 调试"
+            },
+            {
+              "key": "ALL",
+              "label": "全部"
+            }
+          ],
+          "desc": "选择脚本日志的输出等级，低于所选等级的日志将全部输出。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/News",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/news/news-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/news/news-128x128.png"
+      ]
+    },
+    {
+      "id": "iRingo.TestFlight",
+      "name": "✈ TestFlight",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/test-flight\">✈️ TestFlight</a>的使用说明进行配置",
+        "影响功能范围……等"
+      ],
+      "keys": [
+        "@iRingo.TestFlight.Settings",
+        "@iRingo.TestFlight.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.TestFlight.Settings.CountryCode",
+          "name": "国家或地区代码",
+          "type": "selects",
+          "val": "US",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（跟随地区检测结果）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ],
+          "desc": "不同国家或地区提供的内容或有差别。"
+        },
+        {
+          "id": "@iRingo.TestFlight.Settings.MultiAccount",
+          "name": "启用多账号支持",
+          "type": "boolean",
+          "val": false,
+          "desc": "是否启用多账号支持，会自动保存保存更新当前账号信息。"
+        },
+        {
+          "id": "@iRingo.TestFlight.Settings.Universal",
+          "name": "启用通用应用支持",
+          "type": "boolean",
+          "val": true,
+          "desc": "是否启用通用应用支持，解除 TestFlight app 的 iOS/iPadOS/macOS(AppleSilicon) 平台限制。"
+        },
+        {
+          "id": "@iRingo.TestFlight.Settings.LogLevel",
+          "name": "[调试] 日志等级",
+          "type": "selects",
+          "val": "WARN",
+          "items": [
+            {
+              "key": "OFF",
+              "label": "关闭"
+            },
+            {
+              "key": "ERROR",
+              "label": "❌ 错误"
+            },
+            {
+              "key": "WARN",
+              "label": "⚠️ 警告"
+            },
+            {
+              "key": "INFO",
+              "label": "ℹ️ 信息"
+            },
+            {
+              "key": "DEBUG",
+              "label": "🅱️ 调试"
+            },
+            {
+              "key": "ALL",
+              "label": "全部"
+            }
+          ],
+          "desc": "选择脚本日志的输出等级，低于所选等级的日志将全部输出。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo/TestFlight",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/testflight/testflight-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/testflight/testflight-128x128.png"
+      ]
+    },
+    {
+      "id": "iRingo.Watch",
+      "name": "⌚️ WATCH",
+      "descs_html": [
+        "请参照<a href=\"https://NSRingo.github.io/guide/apple-watch\">⌚️ WATCH</a>的使用说明进行配置",
+        "影响功能范围WATCH上的“指南针”、“地图”、“News”等"
+      ],
+      "keys": [
+        "@iRingo.Watch.Settings",
+        "@iRingo.Watch.Caches"
+      ],
+      "settings": [
+        {
+          "id": "@iRingo.Watch.Settings.GeoManifest.Dynamic.Config.CountryCode",
+          "name": "[动态配置] 资源清单的国家或地区代码",
+          "val": "US",
+          "type": "selects",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（跟随地区检测结果）"
+            },
+            {
+              "key": "CN",
+              "label": "🇨🇳中国大陆"
+            },
+            {
+              "key": "HK",
+              "label": "🇭🇰中国香港"
+            },
+            {
+              "key": "TW",
+              "label": "🇹🇼中国台湾"
+            },
+            {
+              "key": "SG",
+              "label": "🇸🇬新加坡"
+            },
+            {
+              "key": "US",
+              "label": "🇺🇸美国"
+            },
+            {
+              "key": "JP",
+              "label": "🇯🇵日本"
+            },
+            {
+              "key": "AU",
+              "label": "🇦🇺澳大利亚"
+            },
+            {
+              "key": "GB",
+              "label": "🇬🇧英国"
+            },
+            {
+              "key": "KR",
+              "label": "🇰🇷韩国"
+            },
+            {
+              "key": "CA",
+              "label": "🇨🇦加拿大"
+            },
+            {
+              "key": "IE",
+              "label": "🇮🇪爱尔兰"
+            }
+          ],
+          "desc": "此选项影响“地图”整体配置内容，包括以下的地图功能与服务。"
+        },
+        {
+          "id": "@iRingo.Watch.Settings.UrlInfoSet.LocationShift",
+          "name": "[URL信息集] 定位漂移",
+          "val": "Apple",
+          "type": "selects",
+          "items": [
+            {
+              "key": "AUTO",
+              "label": "🇺🇳自动（随[动态配置]版本自动选择）"
+            },
+            {
+              "key": "AutoNavi",
+              "label": "🧭高德（🈚️坐标，使用🇨🇳GCJ-02坐标）"
+            },
+            {
+              "key": "Apple",
+              "label": "Apple（🈶️坐标，使用🇺🇳WGS-84坐标）"
+            }
+          ],
+          "desc": "定位漂移修正服务接口，控制定位漂移和🧭指南针与📍坐标的经纬度。"
+        }
+      ],
+      "author": "@VirgilClyne",
+      "repo": "https://github.com/NSRingo",
+      "icons": [
+        "https://developer.apple.com/assets/elements/icons/apple-watch-app/apple-watch-app-128x128.png",
+        "https://developer.apple.com/assets/elements/icons/apple-watch-app/apple-watch-app-128x128.png"
+      ]
+    }
+  ]
 }
-
-function timeout(delay = 5000) {
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            reject('Timeout');
-        }, delay);
-    });
-}
-
-### 说明
-
-1. **脚本参数处理**：允许通过参数自定义图标和颜色，确保在 Surge 中通过 `$argument` 传入。
-2. **流媒体解锁检测**：包括对 Disney+、YouTube Premium 和 Netflix 的检测功能。
-3. **GPT 检测功能**：基于 IP 检测 ChatGPT 是否可用，并显示国别和状态信息。
-4. **错误处理**：增加了错误日志和提示，以便于调试和识别问题。
-
-这个合并后的脚本整合多个检测，适合在你指定的环境中应用。确保 URL 可访问和服务器响应无误。
